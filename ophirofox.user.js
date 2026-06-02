@@ -1,5 +1,5 @@
 // ==UserScript==
-// @version 2.6.10526.1628
+// @version 2.6.10602.116
 // @author  Write
 // @name    OphirofoxScript
 // @grant   GM.getValue
@@ -2381,7 +2381,6 @@
     }
     if (match(hostname, "https://www.leparisien.fr/*")) {
         window.addEventListener("load", function(event) {
-
             function extractKeywords() {
                 return document.querySelector("h1").textContent;
             }
@@ -2398,7 +2397,7 @@
             }
 
             async function onLoad() {
-                const bannerSelector = document.querySelector(".btn-subscribe");
+                const bannerSelector = document.querySelector(".article-section .paywall-abo, .btn-subscribe");
                 if (bannerSelector) {
                     addEuropresseButton();
                 } else {
@@ -2409,7 +2408,11 @@
                         for (const mutation of mutationList) {
                             for (const e of mutation.addedNodes) {
                                 const bannerSelectorString = 'btn-subscribe';
-                                if (e.className == bannerSelectorString) {
+                                if (
+                                    e.classList?.contains(bannerSelectorString) ||
+                                    e.classList?.contains('paywall-abo') ||
+                                    e.querySelector?.('.paywall-abo')
+                                ) {
                                     observer.disconnect();
                                     elementFound = true;
                                     addEuropresseButton();
