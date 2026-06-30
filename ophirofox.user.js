@@ -1,5 +1,5 @@
 // ==UserScript==
-// @version 2.6.10615.44
+// @version 2.6.10630.642
 // @author  Write
 // @name    OphirofoxScript
 // @grant   GM.getValue
@@ -196,15 +196,18 @@
  * ║                   CONFIGURATION                      ║
  * ╠══════════════════════════════════════════════════════╣
  * ║  Au premier lancement, un popup vous demande de      ║
- * ║  choisir votre universite dans la liste.             ║
+ * ║  choisir votre universite et vos preferences.        ║
  * ║                                                      ║
- * ║  Pour changer ensuite, deux options :                ║
+ * ║  Pour changer ensuite, trois options :               ║
  * ║                                                      ║
  * ║  1. Menu de l'extension (icone dans la barre)   ║
  * ║     → clic sur le script                             ║
- * ║     → "Changer l'universite"                    ║
+ * ║     → "Parametres Ophirofox"                         ║
  * ║                                                      ║
- * ║  2. Console JS (F12), sur un site ou le script       ║
+ * ║  2. Icône engrenage (⚙) a cote du bouton            ║
+ * ║     "Lire sur Europresse" (sur iOS/macOS)            ║
+ * ║                                                      ║
+ * ║  3. Console JS (F12), sur un site ou le script       ║
  * ║     est actif :                                      ║
  * ║     setUniversityName("Mon universite")              ║
  * ║     ou setUniversityName("") pour reinitialiser      ║
@@ -234,7 +237,7 @@
     function pasteStyle(str) {
         var node = document.createElement('style');
         node.type = 'text/css';
-        node.appendChild(document.createTextNode(str.replace(/;/g, ' !important;')));
+        node.appendChild(document.createTextNode(str.replace(/(?:\s*!important)?;/g, ' !important;')));
         (document.head ?? document.documentElement).appendChild(node);
     }
 
@@ -327,10 +330,10 @@
         "name": "ENSAM",
         "AUTH_URL": "https://rp1.ensam.eu/login?url=https://nouveau.europresse.com/access/ip/default.aspx?un=AML"
     }, {
-        "name": "ENSTA Bretagne",
+        "name": "ENSTA - Campus de Brest",
         "AUTH_URL": "https://nouveau.europresse.com/access/ip/default.aspx?un=ENSTAT_1"
     }, {
-        "name": "ENSTA Paris",
+        "name": "ENSTA - Campus de Paris-Saclay",
         "AUTH_URL": "https://nouveau.europresse.com/access/ip/default.aspx?un=U033137T_9"
     }, {
         "name": "ENSAE Paris/ENSAI",
@@ -681,8 +684,12 @@
         "AUTH_URL": "https://nouveau.europresse.com/access/httpref/default.aspx?un=CARMU_2"
     }];
 
-    function showUniversityPicker() {
-        return new Promise((resolve) => {
+    function showSettingsPanel() {
+        return new Promise(async (resolve) => {
+            const currentUniversity = await GM.getValue("universityName", null);
+            const openLinksNewTab = await GM.getValue("open_links_new_tab", false);
+            const autoOpenLink = await GM.getValue("auto_open_link", false);
+
             const overlay = document.createElement('div');
             overlay.style.cssText = `
               position: fixed; inset: 0; z-index: 2147483647;
@@ -693,56 +700,128 @@
             const box = document.createElement('div');
             box.style.cssText = `
               background: #fff; border-radius: 10px; padding: 24px;
-              max-width: 480px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+              max-width: 520px; width: 90%; max-height: 85vh;
+              box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+              display: flex; flex-direction: column;
           `;
             const title = document.createElement('h2');
-            title.textContent = 'Choisissez votre universite';
-            title.style.cssText = 'margin: 0 0 8px; font-size: 18px; color: #222;';
-            const subtitle = document.createElement('p');
-            subtitle.textContent = 'Ce choix sera sauvegarde. Vous pourrez le modifier via le menu de l\'extension.';
-            subtitle.style.cssText = 'margin: 0 0 16px; font-size: 13px; color: #666;';
-            const select = document.createElement('select');
-            select.style.cssText = `
+            title.textContent = 'Parametres Ophirofox';
+            title.style.cssText = 'margin: 0 0 4px; font-size: 18px; color: #222;';
+
+            const searchInput = document.createElement('input');
+            searchInput.type = 'search';
+            searchInput.placeholder = 'Rechercher un partenaire...';
+            searchInput.style.cssText = `
               width: 100%; padding: 8px; font-size: 14px;
               border: 1px solid #ccc; border-radius: 6px;
-              margin-bottom: 16px; box-sizing: border-box;
+              margin: 12px 0 8px; box-sizing: border-box;
           `;
-            ophirofox_config_list.forEach((uni, i) => {
-                const opt = document.createElement('option');
-                opt.value = i;
-                opt.textContent = uni.name;
-                select.appendChild(opt);
-            });
+
+            const listContainer = document.createElement('div');
+            listContainer.style.cssText = `
+              max-height: 250px; overflow-y: auto;
+              border: 1px solid #e6e6e6; border-radius: 6px;
+              margin-bottom: 12px;
+          `;
+
+            let selectedName = currentUniversity || ophirofox_config_list[0].name;
+
+            function renderList(filter) {
+                listContainer.innerHTML = '';
+                const f = (filter || '').toLowerCase();
+                ophirofox_config_list.forEach(uni => {
+                    if (f && !uni.name.toLowerCase().includes(f)) return;
+                    const label = document.createElement('label');
+                    label.style.cssText = `
+                      display: flex; align-items: center; gap: 8px;
+                      padding: 6px 10px; cursor: pointer;
+                      font-size: 14px; border-bottom: 1px solid #f0f0f0;
+                  `;
+                    const radio = document.createElement('input');
+                    radio.type = 'radio';
+                    radio.name = 'partner';
+                    radio.value = uni.name;
+                    radio.checked = uni.name === selectedName;
+                    radio.addEventListener('change', () => {
+                        selectedName = uni.name;
+                    });
+                    label.appendChild(radio);
+                    label.appendChild(document.createTextNode(uni.name));
+                    listContainer.appendChild(label);
+                });
+            }
+            renderList();
+            searchInput.addEventListener('input', () => renderList(searchInput.value));
+
+            const togglesContainer = document.createElement('div');
+            togglesContainer.style.cssText = 'margin-bottom: 12px;';
+
+            const newTabLabel = document.createElement('label');
+            newTabLabel.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; cursor: pointer;';
+            const newTabCheck = document.createElement('input');
+            newTabCheck.type = 'checkbox';
+            newTabCheck.checked = openLinksNewTab;
+            newTabLabel.appendChild(newTabCheck);
+            newTabLabel.appendChild(document.createTextNode('Ouvrir les liens Europresse dans un nouvel onglet'));
+
+            const autoOpenLabel = document.createElement('label');
+            autoOpenLabel.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; cursor: pointer;';
+            const autoOpenCheck = document.createElement('input');
+            autoOpenCheck.type = 'checkbox';
+            autoOpenCheck.checked = autoOpenLink;
+            autoOpenLabel.appendChild(autoOpenCheck);
+            autoOpenLabel.appendChild(document.createTextNode("Ouvrir automatiquement le lien lorsqu'un seul resultat est trouve"));
+
+            togglesContainer.appendChild(newTabLabel);
+            togglesContainer.appendChild(autoOpenLabel);
+
             const btn = document.createElement('button');
-            btn.textContent = 'Confirmer';
+            btn.textContent = 'Enregistrer';
             btn.style.cssText = `
               width: 100%; padding: 10px; font-size: 15px; font-weight: bold;
               background: #1a73e8; color: #fff; border: none;
               border-radius: 6px; cursor: pointer;
           `;
             btn.addEventListener('click', async () => {
-                const chosen = ophirofox_config_list[parseInt(select.value)];
-                await GM.setValue("universityName", chosen.name);
+                await GM.setValue("universityName", selectedName);
+                await GM.setValue("open_links_new_tab", newTabCheck.checked);
+                await GM.setValue("auto_open_link", autoOpenCheck.checked);
                 overlay.remove();
-                resolve(chosen.name);
+                resolve({
+                    universityName: selectedName,
+                    openLinksNewTab: newTabCheck.checked,
+                    autoOpenLink: autoOpenCheck.checked
+                });
             });
-            box.append(title, subtitle, select, btn);
+
+            box.append(title, searchInput, listContainer, togglesContainer, btn);
             overlay.appendChild(box);
             document.documentElement.appendChild(overlay);
         });
     }
     let universityName = await GM.getValue("universityName", null);
+    let settingsOpenLinksNewTab = await GM.getValue("open_links_new_tab", false);
+    let settingsAutoOpenLink = await GM.getValue("auto_open_link", false);
     if (universityName === null) {
-        universityName = await showUniversityPicker();
+        const result = await showSettingsPanel();
+        universityName = result.universityName;
+        settingsOpenLinksNewTab = result.openLinksNewTab;
+        settingsAutoOpenLink = result.autoOpenLink;
     }
     if (typeof GM !== "undefined" && typeof GM.registerMenuCommand === "function") {
-        GM.registerMenuCommand("Changer l'universite", async () => {
-            universityName = await showUniversityPicker();
+        GM.registerMenuCommand("Parametres Ophirofox", async () => {
+            const result = await showSettingsPanel();
+            universityName = result.universityName;
+            settingsOpenLinksNewTab = result.openLinksNewTab;
+            settingsAutoOpenLink = result.autoOpenLink;
             location.reload();
         });
     } else if (typeof GM_registerMenuCommand === "function") {
-        GM_registerMenuCommand("Changer l'universite", async () => {
-            universityName = await showUniversityPicker();
+        GM_registerMenuCommand("Parametres Ophirofox", async () => {
+            const result = await showSettingsPanel();
+            universityName = result.universityName;
+            settingsOpenLinksNewTab = result.openLinksNewTab;
+            settingsAutoOpenLink = result.autoOpenLink;
             location.reload();
         });
     }
@@ -773,11 +852,26 @@
         }) => search_name === name);
     }
 
+    function isApplePlatform() {
+        return /iPhone|iPad|Macintosh/.test(navigator.userAgent);
+    }
+
     const DEFAULT_SETTINGS = {
-        partner_name: "Pas d'intermédiaire",
+        partner_name: "Pas d'intermediaire",
+        partner_AUTH_URL: "https://nouveau.europresse.com/Login",
+        open_links_new_tab: false,
+        auto_open_link: false,
     };
 
     let current_settings = DEFAULT_SETTINGS;
+
+    async function getSettings() {
+        try {
+            current_settings.open_links_new_tab = await GM.getValue("open_links_new_tab", false);
+            current_settings.auto_open_link = await GM.getValue("auto_open_link", false);
+        } catch (e) {}
+        return current_settings;
+    }
 
     async function getOphirofoxConfig() {
         try {
@@ -793,6 +887,9 @@
     const ophirofox_config = getOphirofoxConfig();
 
     async function setKeywords(keywords, publishedTime) {
+        await GM.setValue("ophirofox_request_type", {
+            type: 'read'
+        });
         await GM.setValue("ophirofox_keywords", keywords);
         await GM.setValue("ophirofox_published_time", publishedTime);
     }
@@ -810,15 +907,41 @@
         a.onmousedown = setKeywords(keywords, publishedTime);
         a.onclick = async function(evt) {
             evt.preventDefault();
-            await Promise.resolve([ophirofox_config, setKeywords(keywords, publishedTime)]);
+            await getSettings();
+            await setKeywords(keywords, publishedTime);
             const obj = await ophirofox_config;
-            window.location = obj.AUTH_URL;
+            if (current_settings.open_links_new_tab) {
+                window.open(obj.AUTH_URL, "_blank");
+            } else {
+                window.location = obj.AUTH_URL;
+            }
         }
         ophirofox_config.then(({
             AUTH_URL
         }) => {
             a.href = AUTH_URL;
         });
+
+        if (isApplePlatform()) {
+            const wrapper = document.createElement("span");
+            wrapper.style.cssText = "display: inline-flex; align-items: center; gap: 6px;";
+            wrapper.appendChild(a);
+            const cog = document.createElement("button");
+            cog.textContent = "\u2699";
+            cog.title = "Parametres Ophirofox";
+            cog.style.cssText = "background: white; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1; z-index: 20;";
+            cog.addEventListener('click', async (evt) => {
+                evt.preventDefault();
+                evt.stopPropagation();
+                const result = await showSettingsPanel();
+                universityName = result.universityName;
+                settingsOpenLinksNewTab = result.openLinksNewTab;
+                settingsAutoOpenLink = result.autoOpenLink;
+                await getSettings();
+            });
+            wrapper.appendChild(cog);
+            return wrapper;
+        }
         return a;
     }
     if (
@@ -938,6 +1061,12 @@
             });
         }
 
+        async function consumeRequestType() {
+            const requestType = await GM.getValue("ophirofox_request_type");
+            await GM.deleteValue("ophirofox_request_type");
+            return requestType;
+        }
+
         async function consumeReadRequest() {
             const keywords = await GM.getValue("ophirofox_keywords");
             const published_time = await GM.getValue("ophirofox_published_time");
@@ -947,6 +1076,7 @@
             };
             await GM.deleteValue("ophirofox_keywords");
             await GM.deleteValue("ophirofox_published_time");
+            await GM.deleteValue("ophirofox_request_type");
             return readRequest;
         }
 
@@ -961,9 +1091,25 @@
             }
         }
 
+        function readWhenOnlyOneResult() {
+            const observer = new MutationObserver(async () => {
+                const linkElement = document.querySelector('a.docList-links');
+                if (linkElement) {
+                    linkElement.click();
+                    observer.disconnect();
+                }
+            });
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+        }
+
         async function onLoad() {
+            await getSettings();
             ophirofoxRealoadOnExpired();
             const path = window.location.pathname;
+
             if (!(
                     path.startsWith("/Search/Reading") ||
                     path.startsWith("/Search/Advanced") ||
@@ -977,6 +1123,26 @@
 
             if (path === '/Pdf' && await hasConsumable()) {
                 window.location.pathname = '/Search/Reading';
+                return;
+            }
+
+            if (!await hasConsumable()) {
+                if (path.startsWith("/Search/Result")) {
+                    onElemAvailable('.resultOperations-count').then((countElem) => {
+                        if (countElem && countElem.textContent === '1') {
+                            if (current_settings.auto_open_link) {
+                                readWhenOnlyOneResult();
+                            }
+                        } else if (countElem && countElem.textContent === '0') {
+                            const queryField = document.querySelector('#Keywords');
+                            if (queryField && queryField.value.startsWith('TIT_HEAD=')) {
+                                queryField.value = queryField.value.replace('TIT_HEAD=', 'TEXT=');
+                                const btnSearch = document.querySelector('#btnSearch');
+                                if (btnSearch) btnSearch.click();
+                            }
+                        }
+                    });
+                }
                 return;
             }
 
@@ -1048,7 +1214,12 @@
         function ophirofoxRealoadOnExpired() {
             const params = new URLSearchParams(window.location.search);
             if (params.get("ErrorCode") == "4000112") {
-                window.history.back();
+                const partner = getOphirofoxConfigByName(universityName);
+                if (partner && partner.AUTH_URL) {
+                    window.location = partner.AUTH_URL;
+                } else {
+                    window.location = ophirofox_config_list[0].AUTH_URL;
+                }
             }
         }
 
@@ -1983,7 +2154,7 @@
                     "https://" + AUTH_URL_MEDIAPART
                 );
                 a.appendChild(span);
-                return a;
+                return ophirofoxWrapWithCog(a);
             }
 
             /**
@@ -2013,10 +2184,7 @@
                     (elem) => elem.textContent == "Se connecter"
                 );
 
-                let articlePath;
-                await chrome.storage.sync.get(['ophirofox_mediapart_article']).then((result) => {
-                    articlePath = result.ophirofox_mediapart_article
-                })
+                const articlePath = await GM.getValue("ophirofox_mediapart_article", null);
 
                 let currentPage = new URL(window.location)
                 let isRedirectArticle = articlePath && currentPage.pathname != articlePath
@@ -2027,16 +2195,14 @@
                     //redirect to mirror article
                     window.location.pathname = articlePath
                     //clear storage to enable futur navigation on the mirror
-                    chrome.storage.sync.remove(["ophirofox_mediapart_article"])
+                    GM.deleteValue("ophirofox_mediapart_article");
                 }
             }
 
             async function handleMediapart(config) {
                 const reserve = findPremiumBanner();
                 if (!reserve) return;
-                chrome.storage.sync.set({
-                    "ophirofox_mediapart_article": new URL(window.location).pathname
-                })
+                GM.setValue("ophirofox_mediapart_article", new URL(window.location).pathname);
 
                 for (const balise of reserve) {
                     balise.appendChild(await createLink(config.AUTH_URL_MEDIAPART, config.name));
@@ -2044,9 +2210,34 @@
             }
 
             /**@description check for users with mediapart access. If yes, create link button */
+            function ophirofoxWrapWithCog(element) {
+                if (isApplePlatform()) {
+                    const wrapper = document.createElement("span");
+                    wrapper.style.cssText = "display: inline-flex; align-items: center; gap: 6px;";
+                    wrapper.appendChild(element);
+                    const cog = document.createElement("button");
+                    cog.textContent = "\u2699";
+                    cog.title = "Parametres Ophirofox";
+                    cog.style.cssText = "background: white; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1; z-index: 20;";
+                    cog.addEventListener("click", async (evt) => {
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        const result = await showSettingsPanel();
+                        universityName = result.universityName;
+                        settingsOpenLinksNewTab = result.openLinksNewTab;
+                        settingsAutoOpenLink = result.autoOpenLink;
+                        await getSettings();
+                    });
+                    wrapper.appendChild(cog);
+                    return wrapper;
+                }
+                return element;
+            }
+
+
             async function onLoad() {
-                const config = await configurationsSpecifiques(["BNF", "Bibliotheque nationale et universitaire de Strasbourg"]);
-                if (!config) return;
+                const config = await getOphirofoxConfig();
+                if (!config.AUTH_URL_MEDIAPART) return;
                 const currentPage = new URL(window.location);
                 if (currentPage.host == config.AUTH_URL_MEDIAPART) {
                     handleMediapartMirror(config);
@@ -2081,7 +2272,7 @@
                     "https://" + AUTH_URL_MEDIAPART
                 );
                 a.appendChild(span);
-                return a;
+                return ophirofoxWrapWithCog(a);
             }
 
             /**
@@ -2111,10 +2302,7 @@
                     (elem) => elem.textContent == "Se connecter"
                 );
 
-                let articlePath;
-                await chrome.storage.sync.get(['ophirofox_mediapart_article']).then((result) => {
-                    articlePath = result.ophirofox_mediapart_article
-                })
+                const articlePath = await GM.getValue("ophirofox_mediapart_article", null);
 
                 let currentPage = new URL(window.location)
                 let isRedirectArticle = articlePath && currentPage.pathname != articlePath
@@ -2125,16 +2313,14 @@
                     //redirect to mirror article
                     window.location.pathname = articlePath
                     //clear storage to enable futur navigation on the mirror
-                    chrome.storage.sync.remove(["ophirofox_mediapart_article"])
+                    GM.deleteValue("ophirofox_mediapart_article");
                 }
             }
 
             async function handleMediapart(config) {
                 const reserve = findPremiumBanner();
                 if (!reserve) return;
-                chrome.storage.sync.set({
-                    "ophirofox_mediapart_article": new URL(window.location).pathname
-                })
+                GM.setValue("ophirofox_mediapart_article", new URL(window.location).pathname);
 
                 for (const balise of reserve) {
                     balise.appendChild(await createLink(config.AUTH_URL_MEDIAPART, config.name));
@@ -2142,9 +2328,34 @@
             }
 
             /**@description check for users with mediapart access. If yes, create link button */
+            function ophirofoxWrapWithCog(element) {
+                if (isApplePlatform()) {
+                    const wrapper = document.createElement("span");
+                    wrapper.style.cssText = "display: inline-flex; align-items: center; gap: 6px;";
+                    wrapper.appendChild(element);
+                    const cog = document.createElement("button");
+                    cog.textContent = "\u2699";
+                    cog.title = "Parametres Ophirofox";
+                    cog.style.cssText = "background: white; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1; z-index: 20;";
+                    cog.addEventListener("click", async (evt) => {
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        const result = await showSettingsPanel();
+                        universityName = result.universityName;
+                        settingsOpenLinksNewTab = result.openLinksNewTab;
+                        settingsAutoOpenLink = result.autoOpenLink;
+                        await getSettings();
+                    });
+                    wrapper.appendChild(cog);
+                    return wrapper;
+                }
+                return element;
+            }
+
+
             async function onLoad() {
-                const config = await configurationsSpecifiques(["BNF", "Bibliotheque nationale et universitaire de Strasbourg"]);
-                if (!config) return;
+                const config = await getOphirofoxConfig();
+                if (!config.AUTH_URL_MEDIAPART) return;
                 const currentPage = new URL(window.location);
                 if (currentPage.host == config.AUTH_URL_MEDIAPART) {
                     handleMediapartMirror(config);
@@ -2179,7 +2390,7 @@
                     "https://" + AUTH_URL_MEDIAPART
                 );
                 a.appendChild(span);
-                return a;
+                return ophirofoxWrapWithCog(a);
             }
 
             /**
@@ -2209,10 +2420,7 @@
                     (elem) => elem.textContent == "Se connecter"
                 );
 
-                let articlePath;
-                await chrome.storage.sync.get(['ophirofox_mediapart_article']).then((result) => {
-                    articlePath = result.ophirofox_mediapart_article
-                })
+                const articlePath = await GM.getValue("ophirofox_mediapart_article", null);
 
                 let currentPage = new URL(window.location)
                 let isRedirectArticle = articlePath && currentPage.pathname != articlePath
@@ -2223,16 +2431,14 @@
                     //redirect to mirror article
                     window.location.pathname = articlePath
                     //clear storage to enable futur navigation on the mirror
-                    chrome.storage.sync.remove(["ophirofox_mediapart_article"])
+                    GM.deleteValue("ophirofox_mediapart_article");
                 }
             }
 
             async function handleMediapart(config) {
                 const reserve = findPremiumBanner();
                 if (!reserve) return;
-                chrome.storage.sync.set({
-                    "ophirofox_mediapart_article": new URL(window.location).pathname
-                })
+                GM.setValue("ophirofox_mediapart_article", new URL(window.location).pathname);
 
                 for (const balise of reserve) {
                     balise.appendChild(await createLink(config.AUTH_URL_MEDIAPART, config.name));
@@ -2240,9 +2446,34 @@
             }
 
             /**@description check for users with mediapart access. If yes, create link button */
+            function ophirofoxWrapWithCog(element) {
+                if (isApplePlatform()) {
+                    const wrapper = document.createElement("span");
+                    wrapper.style.cssText = "display: inline-flex; align-items: center; gap: 6px;";
+                    wrapper.appendChild(element);
+                    const cog = document.createElement("button");
+                    cog.textContent = "\u2699";
+                    cog.title = "Parametres Ophirofox";
+                    cog.style.cssText = "background: white; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1; z-index: 20;";
+                    cog.addEventListener("click", async (evt) => {
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        const result = await showSettingsPanel();
+                        universityName = result.universityName;
+                        settingsOpenLinksNewTab = result.openLinksNewTab;
+                        settingsAutoOpenLink = result.autoOpenLink;
+                        await getSettings();
+                    });
+                    wrapper.appendChild(cog);
+                    return wrapper;
+                }
+                return element;
+            }
+
+
             async function onLoad() {
-                const config = await configurationsSpecifiques(["BNF", "Bibliotheque nationale et universitaire de Strasbourg"]);
-                if (!config) return;
+                const config = await getOphirofoxConfig();
+                if (!config.AUTH_URL_MEDIAPART) return;
                 const currentPage = new URL(window.location);
                 if (currentPage.host == config.AUTH_URL_MEDIAPART) {
                     handleMediapartMirror(config);
@@ -3879,7 +4110,7 @@
                 const a = document.createElement("a");
                 a.href = BNF_ARRETSURIMAGES_LOGIN_URL;
                 a.appendChild(span);
-                return a;
+                return ophirofoxWrapWithCog(a);
             }
 
             /**
@@ -3912,11 +4143,10 @@
                         return;
                     }
 
-                    const {
-                        ophirofox_arretsurimages_article: articlePath,
-                        ophirofox_asi_login_ts: loginTs
-                    } =
-                    await chrome.storage.sync.get(['ophirofox_arretsurimages_article', 'ophirofox_asi_login_ts']);
+                    const articlePath = await GM.getValue("ophirofox_arretsurimages_article", null);
+
+
+                    const loginTs = await GM.getValue("ophirofox_asi_login_ts", null);
 
                     const connected = isConnected();
                     console.log("[ophirofox][asi-mirror] connected:", connected, "| pathname:", currentPage.pathname);
@@ -3925,17 +4155,20 @@
                         if (!connected) {
                             if (loginTs && Date.now() - loginTs < 30000) {
                                 console.log("[ophirofox][asi-mirror] login récent mais toujours pas connecté, abandon");
-                                chrome.storage.sync.remove(["ophirofox_arretsurimages_article", "ophirofox_asi_login_ts"]);
+                                GM.deleteValue("ophirofox_arretsurimages_article");
+
+                                GM.deleteValue("ophirofox_asi_login_ts");
                                 return;
                             }
                             console.log("[ophirofox][asi-mirror] non connecté, lancement du flow login");
-                            await chrome.storage.sync.set({
-                                "ophirofox_arretsurimages_article": currentPage.pathname,
-                                "ophirofox_asi_login_ts": Date.now()
-                            });
+                            await GM.setValue("ophirofox_arretsurimages_article", currentPage.pathname);
+
+                            await GM.setValue("ophirofox_asi_login_ts", Date.now());
                             window.location.href = BNF_ARRETSURIMAGES_LOGIN_URL;
                         } else {
-                            chrome.storage.sync.remove(["ophirofox_arretsurimages_article", "ophirofox_asi_login_ts"]);
+                            GM.deleteValue("ophirofox_arretsurimages_article");
+
+                            GM.deleteValue("ophirofox_asi_login_ts");
                         }
                         return;
                     }
@@ -3944,11 +4177,15 @@
 
                     if (connected) {
                         console.log("[ophirofox][asi-mirror] connecté, redirect vers:", articlePath);
-                        chrome.storage.sync.remove(["ophirofox_arretsurimages_article", "ophirofox_asi_login_ts"]);
+                        GM.deleteValue("ophirofox_arretsurimages_article");
+
+                        GM.deleteValue("ophirofox_asi_login_ts");
                         window.location.pathname = articlePath;
                     } else {
                         console.log("[ophirofox][asi-mirror] pas connecté malgré le flow, abandon");
-                        chrome.storage.sync.remove(["ophirofox_arretsurimages_article", "ophirofox_asi_login_ts"]);
+                        GM.deleteValue("ophirofox_arretsurimages_article");
+
+                        GM.deleteValue("ophirofox_asi_login_ts");
                     }
                 };
 
@@ -3991,9 +4228,7 @@
                     if (!reserve?.length) return false;
 
                     console.log("[ophirofox][asi] premium banner found, injecting link");
-                    chrome.storage.sync.set({
-                        "ophirofox_arretsurimages_article": new URL(window.location).pathname
-                    });
+                    GM.setValue("ophirofox_arretsurimages_article", new URL(window.location).pathname);
                     for (const balise of reserve) {
                         balise.parentElement.appendChild(createLink());
                     }
@@ -4044,10 +4279,35 @@
             }
 
             /**@description check for BNF users. If yes, create link button */
+            function ophirofoxWrapWithCog(element) {
+                if (isApplePlatform()) {
+                    const wrapper = document.createElement("span");
+                    wrapper.style.cssText = "display: inline-flex; align-items: center; gap: 6px;";
+                    wrapper.appendChild(element);
+                    const cog = document.createElement("button");
+                    cog.textContent = "\u2699";
+                    cog.title = "Parametres Ophirofox";
+                    cog.style.cssText = "background: white; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1; z-index: 20;";
+                    cog.addEventListener("click", async (evt) => {
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        const result = await showSettingsPanel();
+                        universityName = result.universityName;
+                        settingsOpenLinksNewTab = result.openLinksNewTab;
+                        settingsAutoOpenLink = result.autoOpenLink;
+                        await getSettings();
+                    });
+                    wrapper.appendChild(cog);
+                    return wrapper;
+                }
+                return element;
+            }
+
+
             async function onLoad() {
                 console.log("[ophirofox][asi] onLoad");
-                const config = await configurationsSpecifiques(['BNF']);
-                if (!config) {
+                const config = await getOphirofoxConfig();
+                if (!config.AUTH_URL_ARRETSURIMAGES) {
                     console.log("[ophirofox][asi] no BNF config found, aborting");
                     return;
                 }
@@ -4100,7 +4360,7 @@
                 const a = document.createElement("a");
                 a.href = BNF_ARRETSURIMAGES_LOGIN_URL;
                 a.appendChild(span);
-                return a;
+                return ophirofoxWrapWithCog(a);
             }
 
             /**
@@ -4133,11 +4393,10 @@
                         return;
                     }
 
-                    const {
-                        ophirofox_arretsurimages_article: articlePath,
-                        ophirofox_asi_login_ts: loginTs
-                    } =
-                    await chrome.storage.sync.get(['ophirofox_arretsurimages_article', 'ophirofox_asi_login_ts']);
+                    const articlePath = await GM.getValue("ophirofox_arretsurimages_article", null);
+
+
+                    const loginTs = await GM.getValue("ophirofox_asi_login_ts", null);
 
                     const connected = isConnected();
                     console.log("[ophirofox][asi-mirror] connected:", connected, "| pathname:", currentPage.pathname);
@@ -4146,17 +4405,20 @@
                         if (!connected) {
                             if (loginTs && Date.now() - loginTs < 30000) {
                                 console.log("[ophirofox][asi-mirror] login récent mais toujours pas connecté, abandon");
-                                chrome.storage.sync.remove(["ophirofox_arretsurimages_article", "ophirofox_asi_login_ts"]);
+                                GM.deleteValue("ophirofox_arretsurimages_article");
+
+                                GM.deleteValue("ophirofox_asi_login_ts");
                                 return;
                             }
                             console.log("[ophirofox][asi-mirror] non connecté, lancement du flow login");
-                            await chrome.storage.sync.set({
-                                "ophirofox_arretsurimages_article": currentPage.pathname,
-                                "ophirofox_asi_login_ts": Date.now()
-                            });
+                            await GM.setValue("ophirofox_arretsurimages_article", currentPage.pathname);
+
+                            await GM.setValue("ophirofox_asi_login_ts", Date.now());
                             window.location.href = BNF_ARRETSURIMAGES_LOGIN_URL;
                         } else {
-                            chrome.storage.sync.remove(["ophirofox_arretsurimages_article", "ophirofox_asi_login_ts"]);
+                            GM.deleteValue("ophirofox_arretsurimages_article");
+
+                            GM.deleteValue("ophirofox_asi_login_ts");
                         }
                         return;
                     }
@@ -4165,11 +4427,15 @@
 
                     if (connected) {
                         console.log("[ophirofox][asi-mirror] connecté, redirect vers:", articlePath);
-                        chrome.storage.sync.remove(["ophirofox_arretsurimages_article", "ophirofox_asi_login_ts"]);
+                        GM.deleteValue("ophirofox_arretsurimages_article");
+
+                        GM.deleteValue("ophirofox_asi_login_ts");
                         window.location.pathname = articlePath;
                     } else {
                         console.log("[ophirofox][asi-mirror] pas connecté malgré le flow, abandon");
-                        chrome.storage.sync.remove(["ophirofox_arretsurimages_article", "ophirofox_asi_login_ts"]);
+                        GM.deleteValue("ophirofox_arretsurimages_article");
+
+                        GM.deleteValue("ophirofox_asi_login_ts");
                     }
                 };
 
@@ -4212,9 +4478,7 @@
                     if (!reserve?.length) return false;
 
                     console.log("[ophirofox][asi] premium banner found, injecting link");
-                    chrome.storage.sync.set({
-                        "ophirofox_arretsurimages_article": new URL(window.location).pathname
-                    });
+                    GM.setValue("ophirofox_arretsurimages_article", new URL(window.location).pathname);
                     for (const balise of reserve) {
                         balise.parentElement.appendChild(createLink());
                     }
@@ -4265,10 +4529,35 @@
             }
 
             /**@description check for BNF users. If yes, create link button */
+            function ophirofoxWrapWithCog(element) {
+                if (isApplePlatform()) {
+                    const wrapper = document.createElement("span");
+                    wrapper.style.cssText = "display: inline-flex; align-items: center; gap: 6px;";
+                    wrapper.appendChild(element);
+                    const cog = document.createElement("button");
+                    cog.textContent = "\u2699";
+                    cog.title = "Parametres Ophirofox";
+                    cog.style.cssText = "background: white; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1; z-index: 20;";
+                    cog.addEventListener("click", async (evt) => {
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        const result = await showSettingsPanel();
+                        universityName = result.universityName;
+                        settingsOpenLinksNewTab = result.openLinksNewTab;
+                        settingsAutoOpenLink = result.autoOpenLink;
+                        await getSettings();
+                    });
+                    wrapper.appendChild(cog);
+                    return wrapper;
+                }
+                return element;
+            }
+
+
             async function onLoad() {
                 console.log("[ophirofox][asi] onLoad");
-                const config = await configurationsSpecifiques(['BNF']);
-                if (!config) {
+                const config = await getOphirofoxConfig();
+                if (!config.AUTH_URL_ARRETSURIMAGES) {
                     console.log("[ophirofox][asi] no BNF config found, aborting");
                     return;
                 }
@@ -4315,7 +4604,7 @@
                 const a = document.createElement("a");
                 a.href = BNF_ALTERNATIVESECONOMIQUES_LOGIN_URL;
                 a.appendChild(span);
-                return a;
+                return ophirofoxWrapWithCog(a);
             }
 
             /**
@@ -4337,10 +4626,7 @@
                 const currentPage = new URL(window.location);
                 console.log("[ophirofox][ae-mirror] on mirror:", currentPage.pathname);
 
-                const {
-                    ophirofox_alternativeseconomiques_article: articlePath
-                } =
-                await chrome.storage.sync.get(['ophirofox_alternativeseconomiques_article']);
+                const articlePath = await GM.getValue("ophirofox_alternativeseconomiques_article", null);
 
                 if (!articlePath) {
                     // If we're directly on the mirror with no stored article, nothing to do
@@ -4349,7 +4635,7 @@
 
                 // Redirect to the stored article on the mirror
                 console.log("[ophirofox][ae-mirror] redirect to:", articlePath);
-                chrome.storage.sync.remove(["ophirofox_alternativeseconomiques_article"]);
+                GM.deleteValue("ophirofox_alternativeseconomiques_article");
                 window.location.pathname = articlePath;
             }
 
@@ -4362,9 +4648,7 @@
                 if (!reserve?.length) return;
 
                 console.log("[ophirofox][ae] premium banner found, injecting link");
-                chrome.storage.sync.set({
-                    "ophirofox_alternativeseconomiques_article": new URL(window.location).pathname
-                });
+                GM.setValue("ophirofox_alternativeseconomiques_article", new URL(window.location).pathname);
 
                 for (const balise of reserve) {
                     const link = createLink();
@@ -4397,10 +4681,35 @@
             }
 
             /** @description check for BNF users. If yes, create link button */
+            function ophirofoxWrapWithCog(element) {
+                if (isApplePlatform()) {
+                    const wrapper = document.createElement("span");
+                    wrapper.style.cssText = "display: inline-flex; align-items: center; gap: 6px;";
+                    wrapper.appendChild(element);
+                    const cog = document.createElement("button");
+                    cog.textContent = "\u2699";
+                    cog.title = "Parametres Ophirofox";
+                    cog.style.cssText = "background: white; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1; z-index: 20;";
+                    cog.addEventListener("click", async (evt) => {
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        const result = await showSettingsPanel();
+                        universityName = result.universityName;
+                        settingsOpenLinksNewTab = result.openLinksNewTab;
+                        settingsAutoOpenLink = result.autoOpenLink;
+                        await getSettings();
+                    });
+                    wrapper.appendChild(cog);
+                    return wrapper;
+                }
+                return element;
+            }
+
+
             async function onLoad() {
                 console.log("[ophirofox][ae] onLoad");
-                const config = await configurationsSpecifiques(['BNF']);
-                if (!config) {
+                const config = await getOphirofoxConfig();
+                if (!config.AUTH_URL_ALTERNATIVESECONOMIQUES) {
                     console.log("[ophirofox][ae] no BNF config found, aborting");
                     return;
                 }
@@ -4448,7 +4757,7 @@
                 const a = document.createElement("a");
                 a.href = BNF_ALTERNATIVESECONOMIQUES_LOGIN_URL;
                 a.appendChild(span);
-                return a;
+                return ophirofoxWrapWithCog(a);
             }
 
             /**
@@ -4470,10 +4779,7 @@
                 const currentPage = new URL(window.location);
                 console.log("[ophirofox][ae-mirror] on mirror:", currentPage.pathname);
 
-                const {
-                    ophirofox_alternativeseconomiques_article: articlePath
-                } =
-                await chrome.storage.sync.get(['ophirofox_alternativeseconomiques_article']);
+                const articlePath = await GM.getValue("ophirofox_alternativeseconomiques_article", null);
 
                 if (!articlePath) {
                     // If we're directly on the mirror with no stored article, nothing to do
@@ -4482,7 +4788,7 @@
 
                 // Redirect to the stored article on the mirror
                 console.log("[ophirofox][ae-mirror] redirect to:", articlePath);
-                chrome.storage.sync.remove(["ophirofox_alternativeseconomiques_article"]);
+                GM.deleteValue("ophirofox_alternativeseconomiques_article");
                 window.location.pathname = articlePath;
             }
 
@@ -4495,9 +4801,7 @@
                 if (!reserve?.length) return;
 
                 console.log("[ophirofox][ae] premium banner found, injecting link");
-                chrome.storage.sync.set({
-                    "ophirofox_alternativeseconomiques_article": new URL(window.location).pathname
-                });
+                GM.setValue("ophirofox_alternativeseconomiques_article", new URL(window.location).pathname);
 
                 for (const balise of reserve) {
                     const link = createLink();
@@ -4530,10 +4834,35 @@
             }
 
             /** @description check for BNF users. If yes, create link button */
+            function ophirofoxWrapWithCog(element) {
+                if (isApplePlatform()) {
+                    const wrapper = document.createElement("span");
+                    wrapper.style.cssText = "display: inline-flex; align-items: center; gap: 6px;";
+                    wrapper.appendChild(element);
+                    const cog = document.createElement("button");
+                    cog.textContent = "\u2699";
+                    cog.title = "Parametres Ophirofox";
+                    cog.style.cssText = "background: white; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1; z-index: 20;";
+                    cog.addEventListener("click", async (evt) => {
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        const result = await showSettingsPanel();
+                        universityName = result.universityName;
+                        settingsOpenLinksNewTab = result.openLinksNewTab;
+                        settingsAutoOpenLink = result.autoOpenLink;
+                        await getSettings();
+                    });
+                    wrapper.appendChild(cog);
+                    return wrapper;
+                }
+                return element;
+            }
+
+
             async function onLoad() {
                 console.log("[ophirofox][ae] onLoad");
-                const config = await configurationsSpecifiques(['BNF']);
-                if (!config) {
+                const config = await getOphirofoxConfig();
+                if (!config.AUTH_URL_ALTERNATIVESECONOMIQUES) {
                     console.log("[ophirofox][ae] no BNF config found, aborting");
                     return;
                 }
@@ -4577,15 +4906,40 @@
                 a.href = newUrl;
 
                 div.appendChild(a);
-                return div;
+                return ophirofoxWrapWithCog(div);
             }
 
             /**
              * @description website navigation without window reload.
              */
+            function ophirofoxWrapWithCog(element) {
+                if (isApplePlatform()) {
+                    const wrapper = document.createElement("span");
+                    wrapper.style.cssText = "display: inline-flex; align-items: center; gap: 6px;";
+                    wrapper.appendChild(element);
+                    const cog = document.createElement("button");
+                    cog.textContent = "\u2699";
+                    cog.title = "Parametres Ophirofox";
+                    cog.style.cssText = "background: white; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1; z-index: 20;";
+                    cog.addEventListener("click", async (evt) => {
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        const result = await showSettingsPanel();
+                        universityName = result.universityName;
+                        settingsOpenLinksNewTab = result.openLinksNewTab;
+                        settingsAutoOpenLink = result.autoOpenLink;
+                        await getSettings();
+                    });
+                    wrapper.appendChild(cog);
+                    return wrapper;
+                }
+                return element;
+            }
+
+
             async function onLoad() {
-                const config = await configurationsSpecifiques(['BNF'])
-                if (!config) return;
+                const config = await getOphirofoxConfig();
+                if (!config.AUTH_URL_PRESSREADER) return;
                 //too much js dom updates everywere to choose a more specific DOM.element.
                 const element = document.querySelector('body');
                 if (!element) return;
