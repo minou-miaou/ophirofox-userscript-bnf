@@ -1,5 +1,5 @@
 // ==UserScript==
-// @version 2.6.10928.2140
+// @version 2.6.10929.1918
 // @author  Write
 // @name    OphirofoxScript
 // @grant   GM.getValue
@@ -1903,16 +1903,25 @@
     if (match(hostname, "https://www.lepoint.fr/*")) {
         window.addEventListener("load", function(event) {
             async function createLink() {
-                const a = await ophirofoxEuropresseLink();
-                a.classList.add("btn");
-                return a;
+                return await ophirofoxEuropresseLink();
             }
 
             async function onLoad() {
-                const reserve = document.querySelector(".abo");
-                if (!reserve) return;
+                // Le site ne marque plus les articles abonnés dans la page (.abo) : la balise
+                // article:premium le dit
+                const premium = document.querySelector('meta[property="article:premium"]');
+                if (premium?.content !== "true") return;
 
-                reserve.after(await createLink());
+                // Dans le même conteneur que « S'abonner sans engagement », juste après : le site donne
+                // son style aux liens de .subscribe-btn-container
+                const subscribe = document.querySelector(".subscribe-btn-container");
+                if (subscribe) {
+                    subscribe.appendChild(await createLink());
+                    return;
+                }
+                const anchor = document.querySelector("h1.title + .subheadline") || document.querySelector("h1");
+                if (!anchor) return;
+                anchor.after(await createLink());
             }
 
             onLoad().catch(console.error);
@@ -1920,7 +1929,6 @@
         pasteStyle(`
         .ophirofox-europresse {
             margin-left: 10px;
-            background-color: rgb(255, 187, 0);
         }
         `);
     }
@@ -4095,7 +4103,7 @@
             --tw-bg-opacity: 1;
             background-color: #ffdc27;
             background-color: rgb(255 220 39 / var(--tw-bg-opacity, 1));
-            font-family: IBM Plex Sans Condensed;
+            font-family: "IBM Plex Sans", Arial, sans-serif;
             font-size: .875rem;
             line-height: 1.25rem;
             text-transform: uppercase;
@@ -4103,9 +4111,9 @@
             color: #000;
             color: rgb(0 0 0 / var(--tw-text-opacity, 1));
             font-weight: 700;
-            width: 200px;
-            margin-left: 30px;
-            padding: 10px;
+            white-space: nowrap;
+            margin-right: 12px;
+            padding: 8px 12px;
         }
         
         .ophirofox-europresse:hover {
